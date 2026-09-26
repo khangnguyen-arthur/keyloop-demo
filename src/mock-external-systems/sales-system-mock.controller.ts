@@ -1,5 +1,6 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { SALES_SYSTEM_DOCUMENTS, SLOW_SALES_VIN } from './mock-data';
+import { ApiExcludeController } from '@nestjs/swagger';
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -9,6 +10,7 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
  * service reachable only over HTTP — so the aggregator must treat it as an
  * untrusted, possibly slow or unavailable dependency.
  */
+@ApiExcludeController()
 @Controller('mock/sales-system')
 export class SalesSystemMockController {
   @Get('documents')

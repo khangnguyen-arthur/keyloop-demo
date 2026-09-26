@@ -101,6 +101,14 @@ it's the one I'd most want to confirm with a PM in a real project.
 systems are unrelated failure domains; coupling their breakers would mean
 a Service System outage could also fail-fast valid Sales System calls.
 
+**A dedicated fixture VIN to make concurrency provable, not just asserted.**
+"Calls happen in parallel" is easy to claim and hard to see. `PARALLELDEMO00001`
+gives the Sales and Service mocks fixed, deliberately mismatched latency
+(~1500ms / ~300ms) so `totalDurationMs` in the response makes the point on
+its own: it tracks the slower call (~1500ms), not the sum (~1800ms) a
+sequential implementation would produce. This is asserted directly in
+`documents.e2e-spec.ts` rather than left as something to eyeball.
+
 **Timeout + circuit breaker together, not just one.** A timeout alone
 bounds a single call's latency but still hits a dying dependency on every
 request; the circuit breaker additionally protects the dependency (and
@@ -129,7 +137,8 @@ briefly unavailable.
 | **`nestjs-pino`** | Structured JSON logs are what a real log aggregator (Loki/ELK/Cloud Logging) needs; human-readable pretty-printing only in dev |
 | **`prom-client`** | Prometheus is the de facto standard scrape format; trivial to wire into Grafana |
 | **class-validator DTOs** | Declarative VIN validation at the HTTP boundary, consistent with Nest's `ValidationPipe` |
-| **Jest + Supertest** | Standard Nest testing stack; supports both isolated unit tests (mocked clients) and full-stack e2e tests (real HTTP, real mocked-upstream controllers) |
+| **Jest + Supertest** | Standard Nest testing stack; supports both isolated unit tests (mocked clients) and full-stack e2e tests (real HTTP, real mocked-upstream controllers) 
+| **`@nestjs/swagger`** | Interactive "try it out" client harness at `/api/docs` — satisfies the brief's "mock or stub the client-side layer with a simple test harness" option without hand-rolling a UI; also documents the API contract itself |
 
 ## 7. Observability strategy
 

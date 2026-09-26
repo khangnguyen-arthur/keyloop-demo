@@ -65,6 +65,10 @@ curl "http://localhost:3000/v1/documents/search?vin=SLOWSALES00000001" | jq
 
 # Both systems failing -> 503, not 200 with empty data
 # (trip the service circuit first per above, and imagine a similarly-failing sales VIN to see this)
+# Proof of concurrency — fixed, mismatched latency (Sales ~1500ms, Service ~300ms).
+# totalDurationMs tracks max(latency), NOT the sum: a sequential implementation
+# would take ~1800ms; this one takes ~1500ms. See "Try it out" in Swagger UI too.
+curl "http://localhost:3000/v1/documents/search?vin=PARALLELDEMO00001" | jq '{sales: .sources.sales.durationMs, service: .sources.service.durationMs, total: .totalDurationMs}'
 
 # Health & metrics
 curl http://localhost:3000/v1/health
@@ -99,12 +103,14 @@ GET /v1/documents/search?vin={vin}
 503 Service Unavailable — BOTH upstream systems failed
 ```
 
-An OpenAPI/Swagger spec was intentionally not generated for this
-assessment — the contract above plus the DTOs in `src/documents/dto/` were
-judged sufficient for the scope; happy to add `@nestjs/swagger` if useful.
+## Swagger UI
+```
+An interactive Swagger UI is available at `http://localhost:3000/api/docs`
+once the app is running — the `vin` field's description lists every quick
+test VIN below, and "Try it out" calls the real endpoint directly from the browser.
+```
 
 ## Tests
-
 ```bash
 npm test          # unit tests — circuit breaker state machine + AggregationService business logic (13 tests)
 npm run test:e2e  # end-to-end — real HTTP app incl. the mocked upstream controllers (6 tests)
@@ -135,62 +141,6 @@ including a live circuit-breaker trip.
 
 See the System Design Document for how this would extend to distributed
 tracing in a multi-service deployment.
-
-## AI Collaboration Narrative
-
-**Tooling**: Claude (Sonnet), used conversationally end-to-end — scenario
-selection, scaffolding, implementation, debugging, and this README/design
-doc — with me directing architecture and reviewing every diff before it
-was accepted.
-
-**High-level strategy**: I picked the scenario and the layer (backend) and
-set the architectural shape up front — parallel aggregation,
-circuit-breaker + timeout per upstream client, partial-failure-is-not-an-
-error, SQLite for zero-setup persistence, pino + prom-client for
-observability — rather than asking the AI to design from scratch. From
-there I had it scaffold the NestJS module structure and implementation
-file-by-file, reviewing each piece (client wrapper, aggregation service,
-mock controllers, entity) against that plan before moving to the next.
-
-**Verifying and refining the output — concretely, not just "I reviewed it"**:
-
-1. The first scaffold attempt (via `nest new`, which currently defaults to
-   a Vitest-based template) failed to `npm install` with an internal
-   `npm/@npmcli/arborist` crash (`Cannot read properties of null
-   (reading 'edgesOut')`) unrelated to anything in this project. Rather
-   than fight that toolchain, I redirected to a manually-authored,
-   Jest-based `package.json` with pinned, known-stable NestJS 10 versions
-   — a judgment call about which battle was worth fighting.
-2. After the first `nest build` succeeded, I ran the server and manually
-   curled every scenario (happy path, partial, unknown VIN, forced
-   upstream failure). **All four returned 503 "both systems
-   unavailable"** — including the happy path, which should have worked.
-   I diagnosed this myself by reading the exception filter's structured
-   log output rather than trusting a green build: the clients were
-   calling `/mock/sales-system/documents`, but the app's global
-   `VersioningType.URI` prefix meant the actual route was
-   `/v1/mock/sales-system/documents`. Fixed by updating both client
-   `documentsPath` values, with a code comment explaining *why* the `/v1`
-   segment is there (so a future reader doesn't "fix" it back).
-3. Wrote the circuit-breaker unit tests to prove the *specific* claims I
-   was making, not just "it doesn't crash": that a short-circuited call
-   never invokes the wrapped function (`expect(spy).not.toHaveBeenCalled()`),
-   that a success resets the failure streak rather than just closing the
-   circuit, and that HALF_OPEN re-trips on a failed trial. One test
-   initially failed until I fixed an off-by-one in my own threshold
-   assertion, not the implementation.
-4. The e2e suite initially failed all three business-logic tests with the
-   same symptom as #2 but a different cause: supertest's
-   `app.getHttpServer()` doesn't bind a real port by default, but the app
-   under test calls **itself** over real HTTP as its own mocked upstream.
-   Fixed by pinning a real port for the test run and pointing the
-   upstream client base URLs at it via env vars set before module init —
-   documented inline in the test file so the reason isn't a mystery six
-   months from now.
-5. Manually re-ran the full curl matrix (including tripping the circuit
-   breaker 4 times in a row) after every structural change, not just at
-   the end, to catch regressions immediately rather than debug a pile of
-   changes at once.
 
 **Ownership**: every file in `src/` was read and, where something looked
 off (silent audit-log failures shouldn't break a search response; VIN test

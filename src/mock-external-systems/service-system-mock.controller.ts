@@ -1,5 +1,6 @@
 import { Controller, Get, HttpException, HttpStatus, Query } from '@nestjs/common';
 import { FAILING_SERVICE_VIN, SERVICE_SYSTEM_DOCUMENTS } from './mock-data';
+import { ApiExcludeController } from '@nestjs/swagger';
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -9,6 +10,7 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
  * partial-failure and circuit-breaker behaviour can be demonstrated and
  * tested deterministically.
  */
+@ApiExcludeController()
 @Controller('mock/service-system')
 export class ServiceSystemMockController {
   @Get('documents')

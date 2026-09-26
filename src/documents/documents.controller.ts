@@ -3,6 +3,8 @@ import { Request } from 'express';
 import { AggregationService } from './aggregation.service';
 import { SearchDocumentsQueryDto } from './dto/search-documents-query.dto';
 import { SearchDocumentsResponseDto } from './dto/search-documents-response.dto';
+import { ApiBadRequestResponse, ApiOkResponse, ApiOperation, ApiServiceUnavailableResponse } from '@nestjs/swagger';
+import { documentSchemaMockExample } from './mock/document.mock';
 
 @Controller({ path: 'documents', version: '1' })
 export class DocumentsController {
@@ -16,6 +18,21 @@ export class DocumentsController {
    * request.
    */
   @Get('search')
+  @ApiOperation({
+    summary: 'Unified document search by VIN',
+    description:
+      `Calls the Sales System API and Service System API in parallel, merges the results,
+      and tags every document with its sourceSystem. Returns 200 with overallStatus=PARTIAL,
+      (rather than an error) when exactly one upstream system fails, and only returns 503 when both fail`,
+  })
+  @ApiOkResponse({
+    description: 'FULL or PARTIAL result (check overallStatus and sources.* for per source detail)',
+    schema: {
+      example: documentSchemaMockExample,
+    },
+  })
+  @ApiBadRequestResponse({ description: 'vin is missing or not 5 to 17 alphanumeric characters' })
+  @ApiServiceUnavailableResponse({ description: 'Both Sales System and Service System failed for this VIN' })
   async search(
     @Query() query: SearchDocumentsQueryDto,
     @Req() req: Request,
