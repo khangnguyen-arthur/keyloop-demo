@@ -142,6 +142,60 @@ including a live circuit-breaker trip.
 See the System Design Document for how this would extend to distributed
 tracing in a multi-service deployment.
 
+## AI Collaboration Narrative
+
+**Tooling**: Claude (Sonnet), used conversationally Assist for secario and highligh in architecture, evaluate performance, implementation, debugging, and this README/design
+doc — with me.
+
+**High-level strategy**: I picked the scenario and the layer (backend) and
+set the architectural shape up front — parallel aggregation,
+circuit-breaker + timeout per upstream client, partial-failure-is-not-an-
+error, SQLite for zero-setup persistence, pino + prom-client for
+observability — rather than asking the AI to design from scratch. From
+there I had it scaffold the NestJS module structure and implementation
+file-by-file, reviewing each piece (client wrapper, aggregation service,
+mock controllers, entity) against that plan before moving to the next.
+
+**Verifying and refining the output — concretely, not just "I reviewed it"**:
+
+1. The first scaffold attempt (via `nest new`, which currently defaults to
+   a Vitest-based template) failed to `npm install` with an internal
+   `npm/@npmcli/arborist` crash (`Cannot read properties of null
+   (reading 'edgesOut')`) unrelated to anything in this project. Rather
+   than fight that toolchain, I redirected to a manually-authored,
+   Jest-based `package.json` with pinned, known-stable NestJS 10 versions
+   — a judgment call about which battle was worth fighting.
+2. After the first `nest build` succeeded, I ran the server and manually
+   curled every scenario (happy path, partial, unknown VIN, forced
+   upstream failure). **All four returned 503 "both systems
+   unavailable"** — including the happy path, which should have worked.
+   I diagnosed this myself by reading the exception filter's structured
+   log output rather than trusting a green build: the clients were
+   calling `/mock/sales-system/documents`, but the app's global
+   `VersioningType.URI` prefix meant the actual route was
+   `/v1/mock/sales-system/documents`. Fixed by updating both client
+   `documentsPath` values, with a code comment explaining *why* the `/v1`
+   segment is there (so a future reader doesn't "fix" it back).
+3. Wrote the circuit-breaker unit tests to prove the *specific* claims I
+   was making, not just "it doesn't crash": that a short-circuited call
+   never invokes the wrapped function (`expect(spy).not.toHaveBeenCalled()`),
+   that a success resets the failure streak rather than just closing the
+   circuit, and that HALF_OPEN re-trips on a failed trial. One test
+   initially failed until I fixed an off-by-one in my own threshold
+   assertion, not the implementation.
+4. The e2e suite initially failed all three business-logic tests with the
+   same symptom as #2 but a different cause: supertest's
+   `app.getHttpServer()` doesn't bind a real port by default, but the app
+   under test calls **itself** over real HTTP as its own mocked upstream.
+   Fixed by pinning a real port for the test run and pointing the
+   upstream client base URLs at it via env vars set before module init —
+   documented inline in the test file so the reason isn't a mystery six
+   months from now.
+5. Manually re-ran the full curl matrix (including tripping the circuit
+   breaker 4 times in a row) after every structural change, not just at
+   the end, to catch regressions immediately rather than debug a pile of
+   changes at once.
+
 **Ownership**: every file in `src/` was read and, where something looked
 off (silent audit-log failures shouldn't break a search response; VIN test
 fixtures needed to actually be 17 characters to pass DTO validation —
